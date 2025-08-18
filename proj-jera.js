@@ -7,6 +7,9 @@
 // メール検索条件（件名にこの文字が含まれるメールを探す）
 const SEARCH_QUERY = 'subject:"デイリーメールニュース配信" is:unread';
 
+// 処理済みメールに付けるラベル名（なければ作成してね）
+const PROCESSED_LABEL_NAME = "Notion連携済み";
+
 // 抽出対象とする企業名のリスト
 const TARGET_COMPANIES = [
   "日本製鉄",
@@ -58,7 +61,7 @@ const TARGET_COMPANIES = [
   "信越科学",
   "産業PAGGIP",
   "アジリティ・アセット・アドバイザ―ズ",
-  // 新しい会社を追加したいときは、このリストにカンマ区切りで追加する！
+  // 新しい会社を追加したいときは、このリストにカンマ区切りで追加するだけ！
 ];
 
 // ===============================================================
@@ -173,6 +176,7 @@ function parseMailBody(mail, permalink) {
     marketInfo: market,
     mailUrl: permalink, // mailBody の代わりに mailUrl を返す
     receivedAt: receivedDate.toISOString(),
+    fullBody: body,
   };
 }
 
@@ -207,10 +211,6 @@ function extractSection(text, startMarker, endMarker) {
  * @param {object} data - Notion登録用のデータオブジェクト
  */
 function createNotionPage(data) {
-  const properties = PropertiesService.getScriptProperties();
-  const apiKey = properties.getProperty("NOTION_API_KEY");
-  const dbId = properties.getProperty("NOTION_DATABASE_ID");
-
   if (!apiKey || !dbId) {
     console.error("NotionのAPIキーまたはデータベースIDが設定されていません。");
     throw new Error("スクリプトプロパティを確認してください。");
@@ -221,6 +221,12 @@ function createNotionPage(data) {
   const payload = {
     parent: { database_id: dbId },
     properties: {
+      種類: {
+        // Notionのプロパティ名に合わせてね！
+        select: {
+          name: "JERA", // セレクトプロパティの場合
+        },
+      },
       発行日: {
         title: [{ text: { content: data.publishedDate } }],
       },
@@ -248,6 +254,28 @@ function createNotionPage(data) {
         date: { start: data.receivedAt },
       },
     },
+    children: [
+      {
+        object: "block",
+        type: "heading_2", // 見出し2
+        heading_2: {
+          rich_text: [{ text: { content: "受信メール本文" } }],
+        },
+      },
+      {
+        object: "block",
+        type: "paragraph", // 段落
+        paragraph: {
+          rich_text: [
+            {
+              text: {
+                content: data.fullBody.substring(0, 2000), // 2000字の文字数制限
+              },
+            },
+          ],
+        },
+      },
+    ],
   };
 
   const options = {
