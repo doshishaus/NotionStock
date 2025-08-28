@@ -4,8 +4,9 @@
 // 定数 & 設定エリア
 // ===============================================================
 
-// メール検索条件（この送信者からの未読メールを探す）
-const ESP_SEARCH_QUERY = "from:seido-joho@solution-esp.com is:unread";
+// ▼▼▼ 変更点①: メールの検索条件を件名に変更 ▼▼▼
+// メール検索条件（この件名が含まれるメールを探す）
+const ESP_SEARCH_QUERY = 'subject:"【制度情報:ニュース】"';
 
 // 処理済みメールに付けるラベル名（なければ自動で作るよ）
 const ESP_PROCESSED_LABEL_NAME = "Notion連携済み";
@@ -15,20 +16,18 @@ const ESP_PROCESSED_LABEL_NAME = "Notion連携済み";
 // ===============================================================
 
 /**
- * ESPメール処理のメイン関数。ここから全ての処理が始まるよ。
- * main.jsから呼び出されることを想定している。
+ * ESPメール処理のメイン関数。main.jsから情報を受け取る。
+ * ▼▼▼ 変更点②: SlackのURLを受け取る引数を追加 ▼▼▼
+ * @param {string} apiKey - Notion APIキー
+ * @param {string} dbId - Notion データベースID
+ * @param {string} slackWebhookUrl - Slack Webhook URL
  */
-function EspMain() {
+function EspMain(apiKey, dbId, slackWebhookUrl) {
   try {
     console.log("ESPメールの処理を開始します。");
 
-    // Notion接続情報をここで一括取得！
-    const properties = PropertiesService.getScriptProperties();
-    const apiKey = properties.getProperty("NOTION_API_KEY");
-    const dbId = properties.getProperty("NOTION_DATABASE_ID");
-
-    // 取得した接続情報を引数で渡す
-    searchAndProcessEspMails(apiKey, dbId);
+    // 受け取った接続情報を次の関数に渡す
+    searchAndProcessEspMails(apiKey, dbId, slackWebhookUrl);
 
     console.log("正常にESPメールの処理が終了しました。");
   } catch (error) {
@@ -43,10 +42,12 @@ function EspMain() {
 
 /**
  * 条件に一致するESPメールを検索し、一件ずつ処理する
+ * ▼▼▼ 変更点②: SlackのURLを受け取る引数を追加 ▼▼▼
  * @param {string} apiKey - Notion APIキー
  * @param {string} dbId - Notion データベースID
+ * @param {string} slackWebhookUrl - Slack Webhook URL
  */
-function searchAndProcessEspMails(apiKey, dbId) {
+function searchAndProcessEspMails(apiKey, dbId, slackWebhookUrl) {
   // 処理済みラベルがなければ作成
   let label = GmailApp.getUserLabelByName(ESP_PROCESSED_LABEL_NAME);
   if (!label) {
@@ -63,12 +64,13 @@ function searchAndProcessEspMails(apiKey, dbId) {
 
     console.log(`処理中のESPメール: ${mail.getSubject()} (${mail.getDate()})`);
 
+    // 新しい形式に対応した解析関数を呼び出す
     const pageData = parseEspMailBody(mail, permalink);
     console.log("メール本文の解析結果:", JSON.stringify(pageData, null, 2));
 
     if (pageData) {
-      // Notion接続情報を引き継いでページ作成関数を呼び出す
-      createEspNotionPage(pageData, apiKey, dbId);
+      // NotionとSlackの接続情報を引き継いでページ作成関数を呼び出す
+      createEspNotionPage(pageData, apiKey, dbId, slackWebhookUrl);
     }
 
     thread.addLabel(label);
@@ -82,7 +84,8 @@ function searchAndProcessEspMails(apiKey, dbId) {
 // ===============================================================
 
 /**
- * メールオブジェクトから本文を解析し、Notion登録用のデータオブジェクトを作成する
+ * ▼▼▼ 変更点③: メール本文の解析ロジックを全面的に刷新 ▼▼▼
+ * メールオブジェクトから本文を解析し、新しいNotionプロパティ用のデータオブジェクトを作成する
  * @param {GoogleAppsScript.Gmail.GmailMessage} mail - Gmailのメールオブジェクト
  * @param {string} permalink - メールスレッドへのURL
  * @return {object|null} Notion登録用のデータオブジェクト
@@ -92,27 +95,39 @@ function parseEspMailBody(mail, permalink) {
   const body = mail.getPlainBody();
   const receivedDate = mail.getDate();
 
-  const newsUrl = body.match(/---(https?:\/\/[^\s]+)/);
-  const releaseDate = body.match(/発表日：(.+)/);
-  const publisher = body.match(/発表者：(.+)/);
-  const titleInBody = body.match(/件名：\s*([\s\S]*?)【加藤コメント】/);
-  const katoComment = extractSection(body, "【加藤コメント】", "---");
+  // 各セクションをマーカー（目印）を元に抽出
+  const newsTopic = extractSection(body, "〇気になるニュースピック", "---");
+  const background = extractSection(body, "1．背景等", "2．具体的な取組");
+  const initiative = extractSection(body, "2．具体的な取組", "3．今後に向けて");
+  const future = extractSection(
+    body,
+    "3．今後に向けて",
+    "■ESP制度情報配信サービスサイト"
+  );
+
+  // 正規表現で発表日を抽出
+  const releaseDateMatch = body.match(/発表日：(.+)/);
+  // 発表日が見つかればその日付、なければメールの受信日をフォーマットして使う
+  const publishedDate = releaseDateMatch
+    ? releaseDateMatch[1].trim()
+    : Utilities.formatDate(receivedDate, "JST", "yyyy-MM-dd");
 
   return {
-    subject: subject,
-    receivedAt: receivedDate.toISOString(),
-    newsUrl: newsUrl ? newsUrl[1].trim() : "",
-    releaseDate: releaseDate ? releaseDate[1].trim() : "",
-    publisher: publisher ? publisher[1].trim() : "",
-    titleInBody: titleInBody ? titleInBody[1].trim() : "",
-    katoComment: katoComment,
-    fullBody: body,
-    mailUrl: permalink,
+    publishedDate: publishedDate, // 発行日 (Title用)
+    mailTitle: subject, // メールタイトル
+    newsTopic: newsTopic, // 気になるニューストピック
+    background: background, // 背景等
+    initiative: initiative, // 具体的な取組
+    future: future, // 今後に向けて
+    mailUrl: permalink, // 元のメールURL
+    receivedAt: receivedDate.toISOString(), // メール受信日時
+    fullBody: body, // ページ本体に書き込む用の全文
   };
 }
 
 /**
  * 本文テキストから指定されたセクション間のテキストを抽出するヘルパー関数
+ * (この関数は便利なのでそのまま使います)
  * @param {string} text - 全文テキスト
  * @param {string} startMarker - セクション開始の目印
  * @param {string} endMarker - セクション終了の目印
@@ -120,13 +135,16 @@ function parseEspMailBody(mail, permalink) {
  */
 function extractSection(text, startMarker, endMarker) {
   try {
-    const startIndex = text.indexOf(startMarker);
+    let startIndex = text.indexOf(startMarker);
     if (startIndex === -1) return "";
-    const endIndex = text.indexOf(endMarker, startIndex + startMarker.length);
+    startIndex += startMarker.length;
+
+    let endIndex = text.indexOf(endMarker, startIndex);
     if (endIndex === -1) {
-      return text.substring(startIndex + startMarker.length).trim();
+      // 終了マーカーが見つからない場合、そこから最後までを抽出
+      return text.substring(startIndex).trim();
     }
-    return text.substring(startIndex + startMarker.length, endIndex).trim();
+    return text.substring(startIndex, endIndex).trim();
   } catch (e) {
     console.warn(
       `「${startMarker}」から「${endMarker}」の抽出に失敗しました。`
@@ -140,48 +158,60 @@ function extractSection(text, startMarker, endMarker) {
 // ===============================================================
 
 /**
- * Notionに新しいページを作成する
+ * ▼▼▼ 変更点④: Notion登録処理を刷新 & Slack通知を追加 ▼▼▼
+ * Notionに新しいページを作成し、成功したらSlackに通知する
  * @param {object} data - Notion登録用のデータオブジェクト
  * @param {string} apiKey - Notion APIキー
  * @param {string} dbId - Notion データベースID
+ * @param {string} slackWebhookUrl - Slack Webhook URL
  */
-function createEspNotionPage(data, apiKey, dbId) {
-  // 引数で受け取ったキーとIDをチェック
+function createEspNotionPage(data, apiKey, dbId, slackWebhookUrl) {
   if (!apiKey || !dbId) {
     console.error("NotionのAPIキーまたはデータベースIDが渡されませんでした。");
-    throw new Error("EspMainからの引数を確認してください。");
+    return;
   }
 
   const url = "https://api.notion.com/v1/pages";
 
+  // 新しいプロパティに合わせて送信するデータ(payload)を作成
   const payload = {
     parent: { database_id: dbId },
     properties: {
       発行日: {
-        // Titleプロパティ
         title: [{ text: { content: data.publishedDate } }],
       },
       メールタイトル: {
-        rich_text: [{ text: { content: data.subject.substring(0, 2000) } }],
+        rich_text: [{ text: { content: data.mailTitle.substring(0, 2000) } }],
       },
       気になるニューストピック: {
         rich_text: [{ text: { content: data.newsTopic.substring(0, 2000) } }],
       },
-      加藤コメント: {
-        rich_text: [{ text: { content: data.katoComment.substring(0, 2000) } }],
+      背景等: {
+        rich_text: [{ text: { content: data.background.substring(0, 2000) } }],
+      },
+      具体的な取組: {
+        rich_text: [{ text: { content: data.initiative.substring(0, 2000) } }],
+      },
+      今後に向けて: {
+        rich_text: [{ text: { content: data.future.substring(0, 2000) } }],
+      },
+      元のメールURL: {
+        url: data.mailUrl,
+      },
+      メール受信日時: {
+        date: { start: data.receivedAt },
       },
       種類: {
         select: { name: "ESP" },
       },
     },
-    // ▼▼▼ 変更点: ページ本体にも分割したテキストを書き込む ▼▼▼
+    // メール本文全体もページの中身として書き込む
     children: [
       {
         type: "heading_2",
         heading_2: { rich_text: [{ text: { content: "受信メール全文" } }] },
       },
-      // 2000文字制限を回避するため、メール本文をブロックに分割して渡す
-      ...createTextBlocks(data.fullBody),
+      ...createTextBlocks(data.fullBody), // 2000文字制限を回避するヘルパー関数
     ],
   };
 
@@ -203,6 +233,17 @@ function createEspNotionPage(data, apiKey, dbId) {
 
   if (responseCode === 200) {
     console.log("Notionページの作成に成功しました！🎉");
+
+    // ▼▼▼ Slack通知処理を追加 ▼▼▼
+    const notionPageInfo = JSON.parse(responseBody);
+    const notionPageUrl = notionPageInfo.url;
+
+    const message = `【ESP制度情報】\nNotionに新しいページが作成されました！\n\n*件名:* ${data.mailTitle}\n*発行日:* ${data.publishedDate}\n\n▼ Notionで確認する\n${notionPageUrl}`;
+
+    const slackPayload = { text: message };
+
+    // Components.jsの共通関数を呼び出し
+    sendSlackNotification(slackWebhookUrl, slackPayload);
   } else {
     console.error("Notionページの作成に失敗しました...。");
     console.error(`ステータスコード: ${responseCode}`);
@@ -211,9 +252,9 @@ function createEspNotionPage(data, apiKey, dbId) {
   }
 }
 
-// ▼▼▼ 新機能: 2000文字制限を回避するヘルパー関数 ▼▼▼
 /**
- * 長いテキストを2000文字ごとのブロック配列に分割する
+ * 長いテキストを2000文字ごとのブロック配列に分割するヘルパー関数
+ * (この関数も便利なのでそのまま使います)
  * @param {string} text - 分割したい元のテキスト
  * @return {Array<object>} Notion APIのchildrenに渡すためのブロック配列
  */
@@ -232,12 +273,7 @@ function createTextBlocks(text) {
       object: "block",
       type: "paragraph",
       paragraph: {
-        rich_text: [
-          {
-            type: "text",
-            text: { content: chunk },
-          },
-        ],
+        rich_text: [{ type: "text", text: { content: chunk } }],
       },
     });
   }

@@ -5,7 +5,7 @@
 // ===============================================================
 
 // メール検索条件（件名にこの文字が含まれるメールを探す）
-const SEARCH_QUERY = 'subject:"デイリーメールニュース配信" is:unread';
+const SEARCH_QUERY = 'subject:"デイリーメールニュース配信"';
 
 // 処理済みメールに付けるラベル名（なければ作成してね）
 const PROCESSED_LABEL_NAME = "Notion連携済み";
@@ -74,7 +74,7 @@ const TARGET_COMPANIES = [
 function projJeraMain() {
   try {
     console.log("処理を開始します。");
-    searchAndProcessMails();
+    searchAndProcessMails(apiKey, dbId, slackWebhookUrl);
     console.log("正常に処理が終了しました。");
   } catch (error) {
     console.error("エラーが発生しました: " + error.message);
@@ -89,7 +89,7 @@ function projJeraMain() {
 /**
  * 条件に一致するメールを検索し、一件ずつ処理する
  */
-function searchAndProcessMails() {
+function searchAndProcessMails(apiKey, dbId, slackWebhookUrl) {
   let label = GmailApp.getUserLabelByName(PROCESSED_LABEL_NAME);
   if (!label) {
     label = GmailApp.createLabel(PROCESSED_LABEL_NAME);
@@ -110,7 +110,7 @@ function searchAndProcessMails() {
     const pageData = parseMailBody(mail, permalink);
 
     if (pageData) {
-      createNotionPage(pageData);
+      createNotionPage(pageData, apiKey, dbId, slackWebhookUrl);
     }
 
     thread.addLabel(label);
@@ -210,7 +210,7 @@ function extractSection(text, startMarker, endMarker) {
  * Notionに新しいページを作成する
  * @param {object} data - Notion登録用のデータオブジェクト
  */
-function createNotionPage(data) {
+function createNotionPage(data, apiKey, dbId, slackWebhookUrl) {
   if (!apiKey || !dbId) {
     console.error("NotionのAPIキーまたはデータベースIDが設定されていません。");
     throw new Error("スクリプトプロパティを確認してください。");
@@ -295,9 +295,29 @@ function createNotionPage(data) {
   const responseBody = response.getContentText();
 
   if (responseCode === 200) {
-    console.log("Notionページの作成に成功しました。");
+    console.log("Notionページの作成に成功しました！");
+
+    // Notionからの成功レスポンスを解析して、作成されたページのURLを取得
+    const notionPageInfo = JSON.parse(responseBody);
+    const notionPageUrl = notionPageInfo.url;
+
+    // Slackに通知するメッセージを作成
+    const message = `【JERAデイリーメールニュース】\nNotionに新しいページが作成されました！\n\n*発行日:* ${
+      data.publishedDate
+    }\n*登場企業:* ${
+      data.companies.join(", ") || "なし"
+    }\n\n▼ Notionで確認する\n${notionPageUrl}`;
+
+    // Slackに送るデータ（ペイロード）を作成
+    const slackPayload = {
+      text: message,
+    };
+
+    // Components.jsで作った共通関数を呼び出して通知！
+    sendSlackNotification(slackWebhookUrl, slackPayload);
   } else {
-    console.error("Notionページの作成に失敗しました。");
+    // 失敗した場合はエラーログを詳しく出す
+    console.error("Notionページの作成に失敗しました...");
     console.error(`ステータスコード: ${responseCode}`);
     console.error(`レスポンス: ${responseBody}`);
   }
