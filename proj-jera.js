@@ -4,11 +4,11 @@
 // 定数 & 設定エリア
 // ===============================================================
 
-// メール検索条件（件名にこの文字が含まれるメールを探す）
-const SEARCH_QUERY = 'subject:"デイリーメールニュース配信"';
-
 // 処理済みメールに付けるラベル名（なければ作成してね）
 const PROCESSED_LABEL_NAME = "Notion連携済み";
+
+// メール検索条件（件名にこの文字が含まれるメールを探す）
+const SEARCH_QUERY = `subject:"デイリーメールニュース配信" -label:"${PROCESSED_LABEL_NAME}"`;
 
 // 抽出対象とする企業名のリスト
 const TARGET_COMPANIES = [
@@ -71,7 +71,7 @@ const TARGET_COMPANIES = [
 /**
  * このスクリプトのメイン関数。ここから全ての処理が始まる。
  */
-function projJeraMain() {
+function ProjJeraMain(apiKey, dbId, slackWebhookUrl) {
   try {
     console.log("処理を開始します。");
     searchAndProcessMails(apiKey, dbId, slackWebhookUrl);
