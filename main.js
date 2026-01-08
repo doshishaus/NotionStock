@@ -1,25 +1,29 @@
-const SLACK_WEBHOOK_URL_JERA =
-  PropertiesService.getScriptProperties().getProperty("SLACK_WEBHOOK_URL_JERA");
-const SLACK_WEBHOOK_URL_ESP =
-  PropertiesService.getScriptProperties().getProperty("SLACK_WEBHOOK_URL_ESP");
-// const SLACK_WEBHOOK_URL_JERA =
-//   PropertiesService.getScriptProperties().getProperty("SLACK_WEBHOOK_URL_TEST");
-// const SLACK_WEBHOOK_URL_ESP =
-//   PropertiesService.getScriptProperties().getProperty("SLACK_WEBHOOK_URL_TEST");
 const properties = PropertiesService.getScriptProperties();
+// const SLACK_WEBHOOK_URL = properties.getProperty("SLACK_WEBHOOK_URL_TEST");
+const SLACK_WEBHOOK_URL = properties.getProperty("SLACK_WEBHOOK_URL_NEWS");
 const NOTION_API_KEY = properties.getProperty("NOTION_API_KEY");
 const NOTION_DATABASE_ID = properties.getProperty("NOTION_DATABASE_ID");
 
+// ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+// JERAとESP個別チャンネル通知用スクリプトプロパティ
+// const SLACK_WEBHOOK_URL_JERA =
+//   properties.getProperty("SLACK_WEBHOOK_URL_JERA");
+// const SLACK_WEBHOOK_URL_EPS =
+//   properties.getProperty("SLACK_WEBHOOK_URL_EPS");
+// ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+
+// main.js
 function Main() {
-  console.log("proj-Jeraの処理を開始します。");
-  ProjJeraMain(NOTION_API_KEY, NOTION_DATABASE_ID, SLACK_WEBHOOK_URL_JERA);
-  console.log("proj-Jeraの処理を終了しました。");
+  console.log("■全体の処理を開始します。");
 
-  console.log("ESPメールの処理を開始します。");
-  EspMain(NOTION_API_KEY, NOTION_DATABASE_ID, SLACK_WEBHOOK_URL_ESP);
-  console.log("ESPメールの処理を終了しました。");
+  // 1. JERAを実行して結果を取得
+  const jeraResults = ProjJeraMain(NOTION_API_KEY, NOTION_DATABASE_ID);
 
-  console.log("レポートを開始します");
-  // ReportMain();
-  console.log("レポートを終了しました");
+  // 2. ESPを実行して結果を取得
+  const espResults = EspMain(NOTION_API_KEY, NOTION_DATABASE_ID);
+
+  // 3. まとめてレポート送信
+  ReportMain(jeraResults, espResults, SLACK_WEBHOOK_URL);
+
+  console.log("■全体の処理を終了しました。");
 }
