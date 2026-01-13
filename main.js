@@ -1,6 +1,6 @@
 const properties = PropertiesService.getScriptProperties();
-// const SLACK_WEBHOOK_URL = properties.getProperty("SLACK_WEBHOOK_URL_TEST");
-const SLACK_WEBHOOK_URL = properties.getProperty("SLACK_WEBHOOK_URL_NEWS");
+const SLACK_WEBHOOK_URL = properties.getProperty("SLACK_WEBHOOK_URL_TEST");
+// const SLACK_WEBHOOK_URL = properties.getProperty("SLACK_WEBHOOK_URL_NEWS");
 const NOTION_API_KEY = properties.getProperty("NOTION_API_KEY");
 const NOTION_DATABASE_ID = properties.getProperty("NOTION_DATABASE_ID");
 
